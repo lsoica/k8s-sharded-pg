@@ -101,6 +101,16 @@ psql -U postgres
 kill $P_F_PID
 ```
 
+## Setup sharding
+### Add extensions for the coordinating node
+```sh
+CREATE EXTENSION dblink;
+CREATE EXTENSION postgres_fdw;
+```
+
+Apply the auto-shard-install.sql
+
+### Add shard machines
 PostgreSQL hostnames:
 ```sh
 acid-cluster1-0.acid-cluster1.default.svc.cluster.local
@@ -108,10 +118,21 @@ acid-cluster2-0.acid-cluster2.default.svc.cluster.local
 acid-cluster3-0.acid-cluster3.default.svc.cluster.local
 acid-cluster4-0.acid-cluster4.default.svc.cluster.local
 
-INSERT INTO shard.shard_config values(1,'server_0','acid-cluster2-0.acid-cluster2.default.svc.cluster.local',5432,'postgres', 'RkpSw9WFTUSq090GCtXDLVCeJQCO8Xv4EyglRc3WNS2ZRgjLn21iZybnuRC8tR5c');
-INSERT INTO shard.shard_config values(2,'server_1','acid-cluster3-0.acid-cluster3.default.svc.cluster.local',5432,'postgres', 'YYAZ08YweH6CdVNYp35QypAWtKpuGW3ELmf664Uda2lBZyGFp32Qn39B45VwRdS2');
-INSERT INTO shard.shard_config values(3,'server_2','acid-cluster4-0.acid-cluster4.default.svc.cluster.local',5432,'postgres', 'fKhbEBhlZie7Sp6nmrO747X3vjPLJ0IFy8XJGavaa0pJmDZrZpGauxJbRWg2pilz');
+INSERT INTO shard.shard_config values(1,'server_0','acid-cluster2-0.acid-cluster2.default.svc.cluster.local',5432,'postgres', 'kOKA4deEKjubsTqxOHtwYCppp1ooWpS1t1dOE4uWdJGvyyMVw1dDOjDufnS9JFzf');
+INSERT INTO shard.shard_config values(2,'server_1','acid-cluster3-0.acid-cluster3.default.svc.cluster.local',5432,'postgres', 'LEKx2xgSKxrnCGLtGQw8aJ8I0lmWuWc5FNqRqMn9Z0bK0uRF1k1h8qkMqB1KIuzg');
+INSERT INTO shard.shard_config values(3,'server_2','acid-cluster4-0.acid-cluster4.default.svc.cluster.local',5432,'postgres', 'vHdbZEkWU769iOLZbkFyq2kFEElRWgECGf67SmISlDwSHNAmXFeKZe0bU1BBrAxM');
 
+```
+### Create table
+```sql
+CREATE TABLE accounts (
+user_id serial PRIMARY KEY,
+username VARCHAR ( 50 ) UNIQUE NOT NULL,
+password VARCHAR ( 50 ) NOT NULL,
+email VARCHAR ( 255 ) UNIQUE NOT NULL,
+created_on TIMESTAMP NOT NULL,
+        last_login TIMESTAMP 
+);
 ```
 
 ## Cluster CRD
@@ -153,6 +174,60 @@ spec:
     shortNames:
     - spg
 ```
+## Declarative partitioning
+### Create partitioned table
+
+```sql
+CREATE TABLE accounts (
+user_id serial NOT NULL,
+username VARCHAR ( 50 ) NOT NULL,
+password VARCHAR ( 50 ) NOT NULL,
+email VARCHAR ( 255 ) NOT NULL,
+created_on TIMESTAMP NOT NULL,
+last_login TIMESTAMP) PARTITION BY HASH (user_id);
+
+CREATE TABLE accounts_0 (
+user_id serial NOT NULL,
+username VARCHAR ( 50 ) NOT NULL,
+password VARCHAR ( 50 ) NOT NULL,
+email VARCHAR ( 255 ) NOT NULL,
+created_on TIMESTAMP NOT NULL,
+last_login TIMESTAMP);
+
+CREATE TABLE accounts_1 (
+user_id serial NOT NULL,
+username VARCHAR ( 50 ) NOT NULL,
+password VARCHAR ( 50 ) NOT NULL,
+email VARCHAR ( 255 ) NOT NULL,
+created_on TIMESTAMP NOT NULL,
+last_login TIMESTAMP);
+
+CREATE TABLE accounts_2 (
+user_id serial NOT NULL,
+username VARCHAR ( 50 ) NOT NULL,
+password VARCHAR ( 50 ) NOT NULL,
+email VARCHAR ( 255 ) NOT NULL,
+created_on TIMESTAMP NOT NULL,
+last_login TIMESTAMP);
+```
+
+```sh
+CREATE EXTENSION IF NOT EXISTS postgres_fdw;
+CREATE SERVER IF NOT EXISTS shard1 FOREIGN DATA WRAPPER postgres_fdw OPTIONS (dbname 'postgres', host 'acid-cluster2-0.acid-cluster2.default.svc.cluster.local');
+CREATE SERVER IF NOT EXISTS shard2 FOREIGN DATA WRAPPER postgres_fdw OPTIONS (dbname 'postgres', host 'acid-cluster3-0.acid-cluster3.default.svc.cluster.local');
+CREATE SERVER IF NOT EXISTS shard3 FOREIGN DATA WRAPPER postgres_fdw OPTIONS (dbname 'postgres', host 'acid-cluster4-0.acid-cluster4.default.svc.cluster.local');
+
+CREATE USER MAPPING FOR postgres SERVER shard1 OPTIONS (user 'postgres', password '8iHTgkcE9Jc5CaBYUbylZTr8gvmBd4InRFQfJYbGRCft2N0cSwJd0iCiPtNeoeaC');
+CREATE USER MAPPING FOR postgres SERVER shard2 OPTIONS (user 'postgres', password 'vDepBpf6Qi7wG4RGngIelcglzVQoFTdNhCEc3FewdI76vm5UEWJpfgrhqz0z7xf5');
+CREATE USER MAPPING FOR postgres SERVER shard3 OPTIONS (user 'postgres', password 'm2gs7Ic1jwInxMSjC089OlP4u73i7lLBisonbH6AofppiCtq2eKFLbsSGm3peZAu');
+
+CREATE FOREIGN TABLE public.accounts_0 PARTITION OF public.accounts FOR VALUES WITH (modulus 3, remainder 0) SERVER shard1;
+CREATE FOREIGN TABLE public.accounts_1 PARTITION OF public.accounts FOR VALUES WITH (modulus 3, remainder 1) SERVER shard2;
+CREATE FOREIGN TABLE public.accounts_2 PARTITION OF public.accounts FOR VALUES WITH (modulus 3, remainder 2) SERVER shard3;
+
+```
 ## References
 
 - [pgDash on sharding](https://pgdash.io/blog/postgres-11-sharding.html)
+- [An auto sharding implementation based on table inheritance] (https://github.com/kotsachin/pg_auto_shard)
+- [GitLab PG11 & fdw] (https://about.gitlab.com/handbook/engineering/development/enablement/database/doc/fdw-sharding.html)

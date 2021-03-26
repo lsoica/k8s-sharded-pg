@@ -71,7 +71,7 @@ DECLARE
     conn varchar;
     i int;
 BEGIN
-  temp := ( SELECT object_identity FROM pg_event_trigger_ddl_commands() limit 1);
+  temp := ( SELECT object_identity FROM pg_event_trigger_ddl_commands() WHERE object_type = 'table' limit 1);
   tablename := (SELECT split_part(temp,'.',2));
   schemaname := (SELECT split_part(temp,'.',1));
   tbl_def := (SELECT shard.pg_get_tabledef(schemaname,tablename));
@@ -190,7 +190,7 @@ DECLARE
     conn varchar;
     i int;
 BEGIN
-  temp := (SELECT object_identity FROM pg_event_trigger_dropped_objects() limit 1);
+  temp := (SELECT object_identity FROM pg_event_trigger_dropped_objects() WHERE object_type = 'table' limit 1);
   tablename := (SELECT split_part(temp,'.',2));
   schemaname := (SELECT split_part(temp,'.',1));
 
